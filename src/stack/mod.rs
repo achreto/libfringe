@@ -7,17 +7,17 @@
 //! Traits for stacks.
 
 mod slice_stack;
-pub use stack::slice_stack::SliceStack;
+pub use crate::stack::slice_stack::SliceStack;
 
 #[cfg(feature = "alloc")]
 mod owned_stack;
 #[cfg(feature = "alloc")]
-pub use stack::owned_stack::OwnedStack;
+pub use crate::stack::owned_stack::OwnedStack;
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "std"))]
 mod os;
-#[cfg(unix)]
-pub use stack::os::OsStack;
+#[cfg(all(unix, feature = "std"))]
+pub use crate::stack::os::OsStack;
 
 /// A trait for objects that hold ownership of a stack.
 ///

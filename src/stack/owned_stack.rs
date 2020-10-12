@@ -2,11 +2,10 @@
 // Copyright (c) whitequark <whitequark@whitequark.org>
 // See the LICENSE file included in this distribution.
 
-use alloc::alloc::alloc;
-use alloc::boxed::Box;
-use core::alloc::Layout;
-use core::slice;
-use stack::Stack;
+use crate::{stack::Stack, STACK_ALIGNMENT};
+
+use alloc::{alloc::alloc, boxed::Box};
+use core::{alloc::Layout, slice};
 
 /// OwnedStack holds a non-guarded, heap-allocated stack.
 #[derive(Debug)]
@@ -17,10 +16,10 @@ impl OwnedStack {
   /// for the current platform using the default Rust allocator.
   pub fn new(size: usize) -> OwnedStack {
     unsafe {
-      let aligned_size = size & !(::STACK_ALIGNMENT - 1);
+      let aligned_size = size & !(STACK_ALIGNMENT - 1);
       let ptr = alloc(Layout::from_size_align_unchecked(
         aligned_size,
-        ::STACK_ALIGNMENT,
+        STACK_ALIGNMENT,
       ));
       OwnedStack(Box::from_raw(slice::from_raw_parts_mut(ptr, aligned_size)))
     }

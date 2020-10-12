@@ -4,18 +4,13 @@
 // http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
-#![feature(alloc, allocator_api)]
 
 extern crate alloc;
-extern crate core;
-extern crate fringe;
 
-use alloc::alloc::alloc;
-use core::alloc::Layout;
+use alloc::{alloc::alloc, boxed::Box};
+use std::{alloc::Layout, slice};
 
-use alloc::boxed::Box;
 use fringe::{OsStack, OwnedStack, SliceStack, Stack, STACK_ALIGNMENT};
-use std::slice;
 
 unsafe fn heap_allocate(size: usize, align: usize) -> *mut u8 {
   alloc(Layout::from_size_align_unchecked(size, align))

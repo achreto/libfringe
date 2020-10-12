@@ -4,15 +4,14 @@
 // http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
-extern crate libc;
-extern crate std;
 
-use self::libc::MAP_FAILED;
-use self::libc::{c_int, c_void, size_t};
-use self::libc::{mmap, mprotect, munmap};
-use self::std::io::Error as IoError;
-use self::std::ptr;
-use self::std::sync::atomic::{AtomicUsize, Ordering};
+use libc::{c_int, c_void, mmap, mprotect, munmap, size_t, MAP_FAILED};
+
+use core::{
+  ptr,
+  sync::atomic::{AtomicUsize, Ordering},
+};
+use std::io::Error as IoError;
 
 const GUARD_PROT: c_int = libc::PROT_NONE;
 const STACK_PROT: c_int = libc::PROT_READ | libc::PROT_WRITE;

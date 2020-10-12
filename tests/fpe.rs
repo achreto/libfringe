@@ -7,10 +7,9 @@
 // copied, modified, or distributed except according to those terms.
 #![cfg(target_os = "linux")]
 #![feature(test)]
-#![feature(thread_local)]
-#![feature(asm)]
-extern crate fringe;
+
 extern crate test;
+
 use fringe::{Generator, OsStack};
 use test::black_box;
 

@@ -5,8 +5,6 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 #![feature(test)]
-extern crate fringe;
-extern crate test;
 
 use fringe::{Generator, OsStack};
 

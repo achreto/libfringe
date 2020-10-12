@@ -4,10 +4,6 @@
 // http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
-#![feature(asm, naked_functions, untagged_unions)]
-#![cfg_attr(feature = "alloc", feature(alloc, allocator_api))]
-#![cfg_attr(test, feature(test))]
-#![no_std]
 
 //! libfringe is a library implementing safe, lightweight context switches,
 //! without relying on kernel services. It can be used in hosted environments
@@ -29,23 +25,24 @@
 //!   * a stack allocator based on anonymous memory mappings with guard pages,
 //!     [OsStack](struct.OsStack.html).
 
-#[cfg(test)]
+#![feature(asm, naked_functions, untagged_unions)]
+#![cfg_attr(test, feature(test))]
+#![no_std]
+
+#[cfg(any(feature = "std", test))]
 #[macro_use]
 extern crate std;
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+mod arch;
+mod debug;
+pub mod generator;
+mod stack;
+
 pub use generator::Generator;
 pub use stack::*;
 
-mod arch;
-
 /// Minimum alignment of a stack base address on the target platform.
 pub const STACK_ALIGNMENT: usize = arch::STACK_ALIGNMENT;
-
-mod debug;
-
-pub mod generator;
-
-mod stack;

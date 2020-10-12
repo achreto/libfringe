@@ -5,10 +5,11 @@
 // http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
-extern crate fringe;
 
-use fringe::generator::{Generator, Yielder};
-use fringe::{OsStack, OwnedStack, SliceStack};
+use fringe::{
+  generator::{Generator, Yielder},
+  OsStack, OwnedStack, SliceStack,
+};
 
 fn add_one_fn(yielder: &Yielder<i32, i32>, mut input: i32) {
   loop {

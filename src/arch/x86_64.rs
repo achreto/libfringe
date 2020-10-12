@@ -46,8 +46,9 @@
 // * The 1st init trampoline tells the unwinder to restore %rbp and its return
 //   address from the stack frame at %rbp (in the parent stack), thus continuing
 //   unwinding at the swap call site instead of falling off the end of context stack.
-use core::mem;
-use stack::Stack;
+
+use crate::stack::Stack;
+use core::mem::MaybeUninit;
 
 pub const STACK_ALIGNMENT: usize = 16;
 
@@ -56,13 +57,13 @@ pub const STACK_ALIGNMENT: usize = 16;
 pub struct StackPointer(*mut usize);
 
 pub unsafe fn init(
-  stack: &Stack,
+  stack: &dyn Stack,
   f: unsafe extern "C" fn(usize, StackPointer) -> !,
 ) -> StackPointer {
   #[cfg(not(target_vendor = "apple"))]
   #[naked]
   unsafe extern "C" fn trampoline_1() {
-    asm!(
+    llvm_asm!(
       r#"
         # gdb has a hardcoded check that rejects backtraces where frame addresses
         # do not monotonically decrease. It is turned off if the function is called
@@ -102,7 +103,7 @@ pub unsafe fn init(
   #[cfg(target_vendor = "apple")]
   #[naked]
   unsafe extern "C" fn trampoline_1() {
-    asm!(
+    llvm_asm!(
       r#"
       # Identical to the above, except avoids .local/.size that aren't available on Mach-O.
       __morestack:
@@ -117,7 +118,7 @@ pub unsafe fn init(
 
   #[naked]
   unsafe extern "C" fn trampoline_2() {
-    asm!(
+    llvm_asm!(
       r#"
         # Set up the second part of our DWARF CFI.
         # When unwinding the frame corresponding to this function, a DWARF unwinder
@@ -175,20 +176,20 @@ pub unsafe fn init(
 pub unsafe fn swap(
   arg: usize,
   new_sp: StackPointer,
-  new_stack: Option<&Stack>,
+  new_stack: Option<&dyn Stack>,
 ) -> (usize, StackPointer) {
   // Address of the topmost CFA stack slot.
-  let mut dummy: usize = mem::uninitialized();
+  let mut dummy: MaybeUninit<usize> = MaybeUninit::uninit();
   let new_cfa = if let Some(new_stack) = new_stack {
     (new_stack.base() as *mut usize).offset(-4)
   } else {
     // Just pass a dummy pointer if we aren't linking the stack
-    &mut dummy
+    dummy.as_mut_ptr()
   };
 
-  let ret: usize;
-  let ret_sp: *mut usize;
-  asm!(
+  let mut ret: usize;
+  let mut ret_sp: *mut usize;
+  llvm_asm!(
     r#"
         # Push the return address
         leaq    0f(%rip), %rax

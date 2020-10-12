@@ -41,8 +41,9 @@
 // * The 1st init trampoline tells the unwinder to restore r2 and r9
 //   from the stack frame at r2 (in the parent stack), thus continuing
 //   unwinding at the swap call site instead of falling off the end of context stack.
+
+use crate::stack::Stack;
 use core::mem;
-use stack::Stack;
 
 pub const STACK_ALIGNMENT: usize = 4;
 

@@ -4,6 +4,7 @@
 // http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
+
 pub use self::imp::*;
 
 #[cfg(feature = "valgrind")]
@@ -12,12 +13,14 @@ mod imp;
 
 #[cfg(not(feature = "valgrind"))]
 mod imp {
-  use stack;
+  use crate::stack::Stack;
+
   #[derive(Debug)]
   pub struct StackId;
+
   /// No-op since no valgrind
   impl StackId {
-    pub fn register<Stack: stack::Stack>(_stack: &Stack) -> StackId {
+    pub fn register<S: Stack>(_stack: &S) -> StackId {
       StackId
     }
   }

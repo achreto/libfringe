@@ -4,10 +4,9 @@
 // http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
-extern crate std;
 
-use self::std::io::Error as IoError;
-use stack::{GuardedStack, Stack};
+use crate::stack::{GuardedStack, Stack};
+use std::io::Error as IoError;
 
 mod sys;
 
@@ -40,12 +39,12 @@ impl OsStack {
     let len = len + page_size;
 
     // Allocate a stack.
-    let ptr = try!(unsafe { sys::map_stack(len) });
-    let stack = OsStack { ptr: ptr, len: len };
+    let ptr = unsafe { sys::map_stack(len)? };
+    let stack = OsStack { ptr, len };
 
     // Mark the guard page. If this fails, `stack` will be dropped,
     // unmapping it.
-    try!(unsafe { sys::protect_stack(stack.ptr) });
+    unsafe { sys::protect_stack(stack.ptr)? };
 
     Ok(stack)
   }
@@ -54,12 +53,12 @@ impl OsStack {
 unsafe impl Stack for OsStack {
   #[inline(always)]
   fn base(&self) -> *mut u8 {
-    unsafe { self.ptr.offset(self.len as isize) }
+    unsafe { self.ptr.add(self.len) }
   }
 
   #[inline(always)]
   fn limit(&self) -> *mut u8 {
-    unsafe { self.ptr.offset(sys::page_size() as isize) }
+    unsafe { self.ptr.add(sys::page_size()) }
   }
 }
 

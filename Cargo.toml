@@ -7,6 +7,7 @@ license = "Apache-2.0/MIT"
 homepage = "https://github.com/edef1c/libfringe"
 repository = "https://github.com/edef1c/libfringe"
 documentation = "https://edef1c.github.io/libfringe"
+edition = "2018"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.14"
@@ -16,10 +17,11 @@ optional = true
 version = "1.0.0"
 
 [target.'cfg(unix)'.dev-dependencies]
-packed_simd = "0.3.3"
+packed_simd = { version = "0.3.4", package = "packed_simd_2" }
 
 [features]
-default = ["alloc", "valgrind"]
+default = [ "std" ]
+std = [ "alloc" ]
 alloc = []
 valgrind = ["valgrind_request"]
 

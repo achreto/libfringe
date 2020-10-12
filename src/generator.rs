@@ -11,14 +11,12 @@
 //! returning a value to the caller, and resuming the suspended function
 //! afterwards.
 
-use core::cell::Cell;
-use core::marker::PhantomData;
-use core::mem::ManuallyDrop;
-use core::{mem, ptr};
+use core::{cell::Cell, marker::PhantomData, mem, mem::ManuallyDrop, ptr};
 
-use arch::{self, StackPointer};
-use debug;
-use stack;
+use crate::{
+  arch::{self, StackPointer},
+  debug, stack,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
@@ -152,7 +150,7 @@ where
       state: State::Runnable,
       stack: ManuallyDrop::new(stack),
       stack_id: ManuallyDrop::new(stack_id),
-      stack_ptr: stack_ptr,
+      stack_ptr,
       phantom: PhantomData,
     }
   }
@@ -215,7 +213,7 @@ where
   /// This will leave any pointers into the generator stack dangling, and won't run destructors.
   pub unsafe fn unsafe_unwrap(mut self) -> Stack {
     ManuallyDrop::drop(&mut self.stack_id);
-    let stack = ptr::read(&mut *self.stack);
+    let stack = ptr::read(&*self.stack);
     mem::forget(self);
     stack
   }

@@ -8,7 +8,6 @@
 
 pub use self::imp::*;
 
-#[allow(unused_attributes)] // rust-lang/rust#35584
 #[cfg_attr(target_arch = "x86", path = "x86.rs")]
 #[cfg_attr(target_arch = "x86_64", path = "x86_64.rs")]
 #[cfg_attr(target_arch = "aarch64", path = "aarch64.rs")]
@@ -17,11 +16,12 @@ mod imp;
 
 #[cfg(test)]
 mod tests {
-  extern crate packed_simd;
   extern crate test;
 
-  use arch::{self, StackPointer};
-  use OsStack;
+  use crate::{
+    arch::{self, StackPointer},
+    OsStack,
+  };
 
   #[test]
   fn context() {

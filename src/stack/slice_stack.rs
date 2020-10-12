@@ -2,7 +2,7 @@
 // Copyright (c) whitequark <whitequark@whitequark.org>
 // See the LICENSE file included in this distribution.
 
-use stack::Stack;
+use crate::{stack::Stack, STACK_ALIGNMENT};
 
 /// SliceStack holds a non-guarded stack allocated elsewhere and provided as a mutable slice.
 #[derive(Debug)]
@@ -17,13 +17,13 @@ impl<'a> SliceStack<'a> {
   pub fn new(slice: &'a mut [u8]) -> SliceStack<'a> {
     // Align the given slice so that it matches platform requirements
     let ptr = slice.as_ptr() as usize;
-    let adjusted_ptr = (ptr + ::STACK_ALIGNMENT - 1) & !(::STACK_ALIGNMENT - 1);
+    let adjusted_ptr = (ptr + STACK_ALIGNMENT - 1) & !(STACK_ALIGNMENT - 1);
     let offset = adjusted_ptr - ptr;
     if offset > slice.len() {
       panic!("SliceStack too small");
     }
 
-    let adjusted_len = (slice.len() - offset) & !(::STACK_ALIGNMENT - 1);
+    let adjusted_len = (slice.len() - offset) & !(STACK_ALIGNMENT - 1);
     SliceStack(&mut slice[offset..(offset + adjusted_len)])
   }
 }
