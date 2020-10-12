@@ -7,7 +7,7 @@
 extern crate std;
 
 use self::std::io::Error as IoError;
-use stack::{Stack, GuardedStack};
+use stack::{GuardedStack, Stack};
 
 mod sys;
 
@@ -41,10 +41,7 @@ impl OsStack {
 
     // Allocate a stack.
     let ptr = try!(unsafe { sys::map_stack(len) });
-    let stack = OsStack {
-      ptr: ptr,
-      len: len,
-    };
+    let stack = OsStack { ptr: ptr, len: len };
 
     // Mark the guard page. If this fails, `stack` will be dropped,
     // unmapping it.
@@ -57,16 +54,12 @@ impl OsStack {
 unsafe impl Stack for OsStack {
   #[inline(always)]
   fn base(&self) -> *mut u8 {
-    unsafe {
-      self.ptr.offset(self.len as isize)
-    }
+    unsafe { self.ptr.offset(self.len as isize) }
   }
 
   #[inline(always)]
   fn limit(&self) -> *mut u8 {
-    unsafe {
-      self.ptr.offset(sys::page_size() as isize)
-    }
+    unsafe { self.ptr.offset(sys::page_size() as isize) }
   }
 }
 

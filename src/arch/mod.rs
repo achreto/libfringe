@@ -9,19 +9,19 @@
 pub use self::imp::*;
 
 #[allow(unused_attributes)] // rust-lang/rust#35584
-#[cfg_attr(target_arch = "x86",     path = "x86.rs")]
-#[cfg_attr(target_arch = "x86_64",  path = "x86_64.rs")]
+#[cfg_attr(target_arch = "x86", path = "x86.rs")]
+#[cfg_attr(target_arch = "x86_64", path = "x86_64.rs")]
 #[cfg_attr(target_arch = "aarch64", path = "aarch64.rs")]
-#[cfg_attr(target_arch = "or1k",    path = "or1k.rs")]
+#[cfg_attr(target_arch = "or1k", path = "or1k.rs")]
 mod imp;
 
 #[cfg(test)]
 mod tests {
-  extern crate test;
   extern crate packed_simd;
+  extern crate test;
 
   use arch::{self, StackPointer};
-  use ::OsStack;
+  use OsStack;
 
   #[test]
   fn context() {
@@ -76,7 +76,7 @@ mod tests {
         arch::swap(0, stack_ptr, None);
         panic!("arg=1");
       }
-      _ => unreachable!()
+      _ => unreachable!(),
     }
   }
 
@@ -119,8 +119,10 @@ mod tests {
       let stack = OsStack::new(4 << 20).unwrap();
       let mut stack_ptr = arch::init(&stack, loopback);
 
-      b.iter(|| for _ in 0..10 {
-        stack_ptr = arch::swap(0, stack_ptr, Some(&stack)).1;
+      b.iter(|| {
+        for _ in 0..10 {
+          stack_ptr = arch::swap(0, stack_ptr, Some(&stack)).1;
+        }
       });
     }
   }

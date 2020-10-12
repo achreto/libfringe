@@ -6,8 +6,8 @@
 // copied, modified, or distributed except according to those terms.
 extern crate valgrind_request;
 
+use self::valgrind_request::{stack_deregister, stack_register};
 use stack;
-use self::valgrind_request::{stack_register, stack_deregister};
 
 #[derive(Debug)]
 pub struct StackId(self::valgrind_request::Value);

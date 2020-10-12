@@ -4,31 +4,42 @@
 // http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
-extern crate std;
 extern crate libc;
+extern crate std;
 
-use self::std::sync::atomic::{AtomicUsize, Ordering};
-use self::std::ptr;
-use self::std::io::Error as IoError;
-use self::libc::{c_void, c_int, size_t};
-use self::libc::{mmap, mprotect, munmap};
 use self::libc::MAP_FAILED;
+use self::libc::{c_int, c_void, size_t};
+use self::libc::{mmap, mprotect, munmap};
+use self::std::io::Error as IoError;
+use self::std::ptr;
+use self::std::sync::atomic::{AtomicUsize, Ordering};
 
-const GUARD_PROT:  c_int = libc::PROT_NONE;
-const STACK_PROT:  c_int = libc::PROT_READ
-                         | libc::PROT_WRITE;
-#[cfg(not(any(target_os = "freebsd", target_os = "dragonfly", target_vendor = "apple")))]
-const STACK_FLAGS: c_int = libc::MAP_STACK
-                         | libc::MAP_PRIVATE
-                         | libc::MAP_ANON;
+const GUARD_PROT: c_int = libc::PROT_NONE;
+const STACK_PROT: c_int = libc::PROT_READ | libc::PROT_WRITE;
+#[cfg(not(any(
+  target_os = "freebsd",
+  target_os = "dragonfly",
+  target_vendor = "apple"
+)))]
+const STACK_FLAGS: c_int = libc::MAP_STACK | libc::MAP_PRIVATE | libc::MAP_ANON;
 // workaround for http://lists.freebsd.org/pipermail/freebsd-bugs/2011-July/044840.html
 // according to libgreen, DragonFlyBSD suffers from this too
-#[cfg(any(target_os = "freebsd", target_os = "dragonfly", target_vendor = "apple"))]
-const STACK_FLAGS: c_int = libc::MAP_PRIVATE
-                         | libc::MAP_ANON;
+#[cfg(any(
+  target_os = "freebsd",
+  target_os = "dragonfly",
+  target_vendor = "apple"
+))]
+const STACK_FLAGS: c_int = libc::MAP_PRIVATE | libc::MAP_ANON;
 
 pub unsafe fn map_stack(len: usize) -> Result<*mut u8, IoError> {
-  let ptr = mmap(ptr::null_mut(), len as size_t, STACK_PROT, STACK_FLAGS, -1, 0);
+  let ptr = mmap(
+    ptr::null_mut(),
+    len as size_t,
+    STACK_PROT,
+    STACK_FLAGS,
+    -1,
+    0,
+  );
   if ptr == MAP_FAILED {
     Err(IoError::last_os_error())
   } else {
@@ -55,9 +66,7 @@ pub unsafe fn unmap_stack(ptr: *mut u8, len: usize) -> Result<(), IoError> {
 pub fn page_size() -> usize {
   #[cold]
   pub fn sys_page_size() -> usize {
-    unsafe {
-      libc::sysconf(libc::_SC_PAGESIZE) as usize
-    }
+    unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize }
   }
 
   static PAGE_SIZE_CACHE: AtomicUsize = AtomicUsize::new(0);
@@ -67,6 +76,6 @@ pub fn page_size() -> usize {
       PAGE_SIZE_CACHE.store(page_size, Ordering::Relaxed);
       page_size
     }
-    page_size => page_size
+    page_size => page_size,
   }
 }

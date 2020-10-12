@@ -36,8 +36,8 @@ extern crate std;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-pub use stack::*;
 pub use generator::Generator;
+pub use stack::*;
 
 mod arch;
 

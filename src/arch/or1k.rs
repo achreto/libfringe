@@ -50,7 +50,10 @@ pub const STACK_ALIGNMENT: usize = 4;
 #[repr(transparent)]
 pub struct StackPointer(*mut usize);
 
-pub unsafe fn init(stack: &Stack, f: unsafe extern "C" fn(usize, StackPointer) -> !) -> StackPointer {
+pub unsafe fn init(
+  stack: &Stack,
+  f: unsafe extern "C" fn(usize, StackPointer) -> !,
+) -> StackPointer {
   #[naked]
   unsafe extern "C" fn trampoline_1() {
     asm!(
@@ -132,13 +135,13 @@ pub unsafe fn init(stack: &Stack, f: unsafe extern "C" fn(usize, StackPointer) -
 
   // Call frame for trampoline_2. The CFA slot is updated by swap::trampoline
   // each time a context switch is performed.
-  push(&mut sp, 0xdead0cfa);                // CFA slot
+  push(&mut sp, 0xdead0cfa); // CFA slot
   push(&mut sp, trampoline_1 as usize + 4); // Return after the nop
 
   // Call frame for swap::trampoline. We set up the r2 value to point to the
   // parent call frame.
   let frame = sp;
-  push(&mut sp, frame.0 as usize);          // Pointer to parent call frame
+  push(&mut sp, frame.0 as usize); // Pointer to parent call frame
   push(&mut sp, trampoline_2 as usize + 4); // Entry point, skip initial nop
 
   // The last two values are read by the swap trampoline and are actually in the
@@ -147,8 +150,11 @@ pub unsafe fn init(stack: &Stack, f: unsafe extern "C" fn(usize, StackPointer) -
 }
 
 #[inline(always)]
-pub unsafe fn swap(arg: usize, new_sp: StackPointer,
-                   new_stack: Option<&Stack>) -> (usize, StackPointer) {
+pub unsafe fn swap(
+  arg: usize,
+  new_sp: StackPointer,
+  new_stack: Option<&Stack>,
+) -> (usize, StackPointer) {
   // Address of the topmost CFA stack slot.
   let mut dummy: usize = mem::uninitialized();
   let new_cfa = if let Some(new_stack) = new_stack {
