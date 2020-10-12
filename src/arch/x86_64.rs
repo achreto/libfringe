@@ -63,81 +63,69 @@ pub unsafe fn init(
   #[cfg(not(target_vendor = "apple"))]
   #[naked]
   unsafe extern "C" fn trampoline_1() {
-    llvm_asm!(
-      r#"
-        # gdb has a hardcoded check that rejects backtraces where frame addresses
-        # do not monotonically decrease. It is turned off if the function is called
-        # "__morestack" and that is hardcoded. So, to make gdb backtraces match
-        # the actual unwinder behavior, we call ourselves "__morestack" and mark
-        # the symbol as local; it shouldn't interfere with anything.
-      __morestack:
-      .local __morestack
-
-        # Set up the first part of our DWARF CFI linking stacks together. When
-        # we reach this function from unwinding, %rbp will be pointing at the bottom
-        # of the parent linked stack. This link is set each time swap() is called.
-        # When unwinding the frame corresponding to this function, a DWARF unwinder
-        # will use %rbp+16 as the next call frame address, restore return address
-        # from CFA-8 and restore %rbp from CFA-16. This mirrors what the second half
-        # of `swap_trampoline` does.
-        .cfi_def_cfa %rbp, 16
-        .cfi_offset %rbp, -16
-
-        # This nop is here so that the initial swap doesn't return to the start
-        # of the trampoline, which confuses the unwinder since it will look for
-        # frame information in the previous symbol rather than this one. It is
-        # never actually executed.
-        nop
-
-        # Stack unwinding in some versions of libunwind doesn't seem to like
-        # 1-byte symbols, so we add a second nop here. This instruction isn't
-        # executed either, it is only here to pad the symbol size.
-        nop
-
-      .Lend:
-      .size __morestack, .Lend-__morestack
-      "#
-      : : : : "volatile")
+    asm!(
+      // gdb has a hardcoded check that rejects backtraces where frame addresses
+      // do not monotonically decrease. It is turned off if the function is called
+      // "__morestack" and that is hardcoded. So, to make gdb backtraces match
+      // the actual unwinder behavior, we call ourselves "__morestack" and mark
+      // the symbol as local; it shouldn't interfere with anything.
+      "__morestack:",
+      ".local __morestack",
+      // Set up the first part of our DWARF CFI linking stacks together. When
+      // we reach this function from unwinding, %rbp will be pointing at the bottom
+      // of the parent linked stack. This link is set each time swap() is called.
+      // When unwinding the frame corresponding to this function, a DWARF unwinder
+      // will use %rbp+16 as the next call frame address, restore return address
+      // from CFA-8 and restore %rbp from CFA-16. This mirrors what the second half
+      // of `swap_trampoline` does.
+      ".cfi_def_cfa rbp, 16",
+      ".cfi_offset rbp, -16",
+      // This nop is here so that the initial swap doesn't return to the start
+      // of the trampoline, which confuses the unwinder since it will look for
+      // frame information in the previous symbol rather than this one. It is
+      // never actually executed.
+      "nop",
+      // Stack unwinding in some versions of libunwind doesn't seem to like
+      // 1-byte symbols, so we add a second nop here. This instruction isn't
+      // executed either, it is only here to pad the symbol size.
+      "nop",
+      ".Lend:",
+      ".size __morestack, .Lend-__morestack",
+    );
   }
 
   #[cfg(target_vendor = "apple")]
   #[naked]
   unsafe extern "C" fn trampoline_1() {
-    llvm_asm!(
-      r#"
-      # Identical to the above, except avoids .local/.size that aren't available on Mach-O.
-      __morestack:
-      .private_extern __morestack
-        .cfi_def_cfa %rbp, 16
-        .cfi_offset %rbp, -16
-        nop
-        nop
-      "#
-      : : : : "volatile")
+    asm!(
+      // Identical to the above, except avoids .local/.size that aren't available on Mach-O.
+      "__morestack:",
+      ".private_extern __morestack",
+      ".cfi_def_cfa rbp, 16",
+      ".cfi_offset rbp, -16",
+      "nop",
+      "nop",
+    )
   }
 
   #[naked]
   unsafe extern "C" fn trampoline_2() {
-    llvm_asm!(
-      r#"
-        # Set up the second part of our DWARF CFI.
-        # When unwinding the frame corresponding to this function, a DWARF unwinder
-        # will restore %rbp (and thus CFA of the first trampoline) from the stack slot.
-        # This stack slot is updated every time swap() is called to point to the bottom
-        # of the stack of the context switch just switched from.
-        .cfi_def_cfa %rbp, 16
-        .cfi_offset %rbp, -16
-
-        # This nop is here so that the return address of the swap trampoline
-        # doesn't point to the start of the symbol. This confuses gdb's backtraces,
-        # causing them to think the parent function is trampoline_1 instead of
-        # trampoline_2.
-        nop
-
-        # Call the provided function.
-        call    *16(%rsp)
-      "#
-      : : : : "volatile")
+    asm!(
+      // Set up the second part of our DWARF CFI.
+      // When unwinding the frame corresponding to this function, a DWARF unwinder
+      // will restore %rbp (and thus CFA of the first trampoline) from the stack slot.
+      // This stack slot is updated every time swap() is called to point to the bottom
+      // of the stack of the context switch just switched from.
+      ".cfi_def_cfa rbp, 16",
+      ".cfi_offset rbp, -16",
+      // This nop is here so that the return address of the swap trampoline
+      // doesn't point to the start of the symbol. This confuses gdb's backtraces,
+      // causing them to think the parent function is trampoline_1 instead of
+      // trampoline_2.
+      "nop",
+      // Call the provided function.
+      "call [rsp + 16]",
+    );
   }
 
   unsafe fn push(sp: &mut StackPointer, val: usize) {
@@ -189,55 +177,67 @@ pub unsafe fn swap(
 
   let mut ret: usize;
   let mut ret_sp: *mut usize;
-  llvm_asm!(
-    r#"
-        # Push the return address
-        leaq    0f(%rip), %rax
-        pushq   %rax
 
-        # Save frame pointer explicitly; the unwinder uses it to find CFA of
-        # the caller, and so it has to have the correct value immediately after
-        # the call instruction that invoked the trampoline.
-        pushq   %rbp
+  asm!(
+      // Push the return address
+      "lea    rax, [rip + 0f]",
+      "push   rax",
+      // Save frame pointer explicitly; the unwinder uses it to find CFA of
+      // the caller, and so it has to have the correct value immediately after
+      // the call instruction that invoked the trampoline.
+      "push   rbp",
+      // Link the call stacks together by writing the current stack bottom
+      // address to the CFA slot in the new stack.
+      "mov    [rcx], rsp",
+      // Pass the stack pointer of the old context to the new one.
+      "mov    rsi, rsp",
+      // Load stack pointer of the new context.
+      "mov    rsp, rdx",
+      // Restore frame pointer of the new context.
+      "pop    rbp",
+      // Return into the new context. Use `pop` and `jmp` instead of a `ret`
+      // to avoid return address mispredictions (~8ns per `ret` on Ivy Bridge).
+      "pop    rax",
+      "jmp    rax",
+      "0:",
+      // Outputs
+      lateout("rdi") ret,
+      lateout("rsi") ret_sp,
+      // Inputs
+      in("rdi") arg,
+      in("rdx") new_sp.0,
+      in("rcx") new_cfa,
+      // Clobbers
+      out("rax") _, out("rbx") _, lateout("rcx") _, lateout("rdx") _,
+      out("r8") _, out("r9") _, out("r10") _, out("r11") _,
+      out("r12") _, out("r13") _, out("r14") _, out("r15") _,
+      /*
+      TODO:
+      out("mm0") _, out("mm1") _, out("mm2") _, out("mm3") _,
+      out("mm4") _, out("mm5") _, out("mm6") _, out("mm7") _,
+      */
+      out("xmm0") _, out("xmm1") _, out("xmm2") _, out("xmm3") _,
+      out("xmm4") _, out("xmm5") _, out("xmm6") _, out("xmm7") _,
+      out("xmm8") _, out("xmm9") _, out("xmm10") _, out("xmm11") _,
+      out("xmm12") _, out("xmm13") _, out("xmm14") _, out("xmm15") _,
+      /*
+      TODO:
+      out("xmm16") _, out("xmm17") _, out("xmm18") _, out("xmm19") _,
+      out("xmm20") _, out("xmm21") _, out("xmm22") _, out("xmm23") _,
+      out("xmm24") _, out("xmm25") _, out("xmm26") _, out("xmm27") _,
+      out("xmm28") _, out("xmm29") _, out("xmm30") _, out("xmm31") _,
+      */
+      /* Options:
+          rustc emits the following clobbers,
+          - by *not* specifying `options(preserves_flags)`:
+              (x86) ~{dirflag},~{flags},~{fpsr}
+              (ARM/AArch64) ~{cc}
+          - by *not* specifying `options(nomem)`:
+              ~{memory}
+          - by *not* specifying `nostack`:
+              alignstack
+      */
+  );
 
-        # Link the call stacks together by writing the current stack bottom
-        # address to the CFA slot in the new stack.
-        movq    %rsp, (%rcx)
-
-        # Pass the stack pointer of the old context to the new one.
-        movq    %rsp, %rsi
-
-        # Load stack pointer of the new context.
-        movq    %rdx, %rsp
-
-        # Restore frame pointer of the new context.
-        popq    %rbp
-
-        # Return into the new context. Use `pop` and `jmp` instead of a `ret`
-        # to avoid return address mispredictions (~8ns per `ret` on Ivy Bridge).
-        popq    %rax
-        jmpq    *%rax
-
-      0:
-    "#
-    : "={rdi}" (ret)
-      "={rsi}" (ret_sp)
-    : "{rdi}" (arg)
-      "{rdx}" (new_sp.0)
-      "{rcx}" (new_cfa)
-    : "rax",   "rbx",   "rcx",   "rdx", /*"rsi",   "rdi",   "rbp",   "rsp",*/
-      "r8",    "r9",    "r10",   "r11",   "r12",   "r13",   "r14",   "r15",
-      "mm0",   "mm1",   "mm2",   "mm3",   "mm4",   "mm5",   "mm6",   "mm7",
-      "xmm0",  "xmm1",  "xmm2",  "xmm3",  "xmm4",  "xmm5",  "xmm6",  "xmm7",
-      "xmm8",  "xmm9",  "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15",
-      "xmm16", "xmm17", "xmm18", "xmm19", "xmm20", "xmm21", "xmm22", "xmm23",
-      "xmm24", "xmm25", "xmm26", "xmm27", "xmm28", "xmm29", "xmm30", "xmm31",
-      "cc", "dirflag", "fpsr", "flags", "memory"
-      // Ideally, we would set the LLVM "noredzone" attribute on this function
-      // (and it would be propagated to the call site). Unfortunately, rustc
-      // provides no such functionality. Fortunately, by a lucky coincidence,
-      // the "alignstack" LLVM inline assembly option does exactly the same
-      // thing on x86_64.
-    : "volatile", "alignstack");
   (ret, StackPointer(ret_sp))
 }
