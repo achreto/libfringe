@@ -25,7 +25,7 @@
 //!   * a stack allocator based on anonymous memory mappings with guard pages,
 //!     [OsStack](struct.OsStack.html).
 
-#![feature(asm, naked_functions, untagged_unions)]
+#![feature(asm, naked_functions, untagged_unions, unwind_attributes)]
 #![cfg_attr(test, feature(test))]
 #![no_std]
 
@@ -35,6 +35,13 @@ extern crate std;
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
+
+#[cfg(feature = "unwind")]
+#[path = "unwind.rs"]
+mod unwind;
+#[cfg(not(feature = "unwind"))]
+#[path = "no_unwind.rs"]
+mod unwind;
 
 mod arch;
 mod debug;

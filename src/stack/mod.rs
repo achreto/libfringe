@@ -19,6 +19,9 @@ mod os;
 #[cfg(all(unix, feature = "std"))]
 pub use crate::stack::os::OsStack;
 
+// Stacks have to be at least 16KB to support unwinding.
+pub const MIN_STACK_SIZE: usize = 16 * 1024;
+
 /// A trait for objects that hold ownership of a stack.
 ///
 /// To preserve memory safety, an implementation of this trait must fulfill

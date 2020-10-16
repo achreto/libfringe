@@ -5,7 +5,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use crate::stack::{GuardedStack, Stack};
+use crate::stack::{GuardedStack, Stack, MIN_STACK_SIZE};
 use std::io::Error as IoError;
 
 mod sys;
@@ -27,9 +27,7 @@ impl OsStack {
   /// one guard page.
   pub fn new(size: usize) -> Result<OsStack, IoError> {
     let page_size = sys::page_size();
-
-    // Stacks have to be at least one page long.
-    let len = if size == 0 { page_size } else { size };
+    let len = core::cmp::max(MIN_STACK_SIZE, size);
 
     // Round the length one page size up, using the fact that the page size
     // is a power of two.

@@ -47,19 +47,12 @@
 //   address from the stack frame at %rbp (in the parent stack), thus continuing
 //   unwinding at the swap call site instead of falling off the end of context stack.
 
-use crate::stack::Stack;
-use core::mem::MaybeUninit;
+use crate::{arch::StackPointer, unwind};
+use core::ptr::NonNull;
 
 pub const STACK_ALIGNMENT: usize = 16;
 
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct StackPointer(*mut usize);
-
-pub unsafe fn init(
-  stack: &dyn Stack,
-  f: unsafe extern "C" fn(usize, StackPointer) -> !,
-) -> StackPointer {
+pub unsafe fn init(stack_base: *mut u8, f: unsafe fn(usize, StackPointer)) -> StackPointer {
   #[cfg(not(target_vendor = "apple"))]
   #[naked]
   unsafe extern "C" fn trampoline_1() {
@@ -118,19 +111,47 @@ pub unsafe fn init(
       // of the stack of the context switch just switched from.
       ".cfi_def_cfa rbp, 16",
       ".cfi_offset rbp, -16",
+
       // This nop is here so that the return address of the swap trampoline
       // doesn't point to the start of the symbol. This confuses gdb's backtraces,
       // causing them to think the parent function is trampoline_1 instead of
       // trampoline_2.
       "nop",
-      // Call the provided function.
-      "call [rsp + 16]",
-    );
-  }
 
-  unsafe fn push(sp: &mut StackPointer, val: usize) {
-    sp.0 = sp.0.offset(-1);
-    *sp.0 = val
+      // Call unwind_wrapper with the provided function and the stack base address.
+      "lea    rdx, [rsp + 32]",
+      "mov    rcx, [rsp + 16]",
+      "call   {0}",
+
+      // Restore the stack pointer of the parent context. No CFI adjustments
+      // are needed since we have the same stack frame as trampoline_1.
+      "mov    rsp, [rsp]",
+
+      // Restore frame pointer of the parent context.
+      "pop    rbp",
+      ".cfi_adjust_cfa_offset -8",
+      ".cfi_restore rbp",
+
+      // If the returned value is nonzero, trigger an unwind in the parent
+      // context with the given exception object.
+      "mov    rdi, rax",
+      "test   rax, rax",
+      "jnz    {1}",
+
+      // Clear the stack pointer. We can't call into this context any more once
+      // the function has returned.
+      "xor    rsi, rsi",
+
+      // Return into the parent context. Use `pop` and `jmp` instead of a `ret`
+      // to avoid return address mispredictions (~8ns per `ret` on Ivy Bridge).
+      "pop    rax",
+      ".cfi_adjust_cfa_offset -8",
+      ".cfi_register rip, rax",
+      "jmp    rax",
+
+      sym unwind::unwind_wrapper,
+      sym unwind::start_unwind,
+    );
   }
 
   // We set up the stack in a somewhat special way so that to the unwinder it
@@ -141,40 +162,31 @@ pub unsafe fn init(
   // followed by the %rbp value for that frame. This setup supports unwinding
   // using DWARF CFI as well as the frame pointer-based unwinding used by tools
   // such as perf or dtrace.
-  let mut sp = StackPointer(stack.base() as *mut usize);
+  let mut sp = StackPointer::new(stack_base);
 
-  push(&mut sp, 0 as usize); // Padding to ensure the stack is properly aligned
-  push(&mut sp, f as usize); // Function that trampoline_2 should call
+  sp.push(0 as usize); // Padding to ensure the stack is properly aligned
+  sp.push(f as usize); // Function that trampoline_2 should call
 
   // Call frame for trampoline_2. The CFA slot is updated by swap::trampoline
   // each time a context switch is performed.
-  push(&mut sp, trampoline_1 as usize + 2); // Return after the 2 nops
-  push(&mut sp, 0xdeaddeaddead0cfa); // CFA slot
+  sp.push(trampoline_1 as usize + 2); // Return after the 2 nops
+  sp.push(0xdeaddeaddead0cfa); // CFA slot
 
   // Call frame for swap::trampoline. We set up the %rbp value to point to the
   // parent call frame.
-  let frame = sp;
-  push(&mut sp, trampoline_2 as usize + 1); // Entry point, skip initial nop
-  push(&mut sp, frame.0 as usize); // Pointer to parent call frame
+  let frame = sp.offset(0);
+  sp.push(trampoline_2 as usize + 1); // Entry point, skip initial nop
+  sp.push(frame as usize); // Pointer to parent call frame
 
   sp
 }
 
 #[inline(always)]
-pub unsafe fn swap(
+pub unsafe fn swap_link(
   arg: usize,
   new_sp: StackPointer,
-  new_stack: Option<&dyn Stack>,
-) -> (usize, StackPointer) {
-  // Address of the topmost CFA stack slot.
-  let mut dummy: MaybeUninit<usize> = MaybeUninit::uninit();
-  let new_cfa = if let Some(new_stack) = new_stack {
-    (new_stack.base() as *mut usize).offset(-4)
-  } else {
-    // Just pass a dummy pointer if we aren't linking the stack
-    dummy.as_mut_ptr()
-  };
-
+  new_stack_base: *mut u8,
+) -> (usize, Option<StackPointer>) {
   let mut ret: usize;
   let mut ret_sp: *mut usize;
 
@@ -188,7 +200,7 @@ pub unsafe fn swap(
       "push   rbp",
       // Link the call stacks together by writing the current stack bottom
       // address to the CFA slot in the new stack.
-      "mov    [rcx], rsp",
+      "mov    [rcx - 32], rsp",
       // Pass the stack pointer of the old context to the new one.
       "mov    rsi, rsp",
       // Load stack pointer of the new context.
@@ -199,14 +211,15 @@ pub unsafe fn swap(
       // to avoid return address mispredictions (~8ns per `ret` on Ivy Bridge).
       "pop    rax",
       "jmp    rax",
+      // Reentry
       "0:",
       // Outputs
       lateout("rdi") ret,
       lateout("rsi") ret_sp,
       // Inputs
       in("rdi") arg,
-      in("rdx") new_sp.0,
-      in("rcx") new_cfa,
+      in("rdx") new_sp.offset(0),
+      in("rcx") new_stack_base,
       // Clobbers
       out("rax") _, out("rbx") _, lateout("rcx") _, lateout("rdx") _,
       out("r8") _, out("r9") _, out("r10") _, out("r11") _,
@@ -238,6 +251,141 @@ pub unsafe fn swap(
               alignstack
       */
   );
+  (ret, NonNull::new(ret_sp).map(StackPointer::from))
+}
 
-  (ret, StackPointer(ret_sp))
+#[inline(always)]
+pub unsafe fn swap(arg: usize, new_sp: StackPointer) -> (usize, StackPointer) {
+  // This is identical to swap_link, but without the write to the CFA slot.
+  let mut ret: usize;
+  let mut ret_sp: *mut usize;
+
+  asm!(
+      // Push the return address
+      "lea    rax, [rip + 0f]",
+      "push   rax",
+      // Save frame pointer explicitly; the unwinder uses it to find CFA of
+      // the caller, and so it has to have the correct value immediately after
+      // the call instruction that invoked the trampoline.
+      "push   rbp",
+      // Pass the stack pointer of the old context to the new one.
+      "mov    rsi, rsp",
+      // Load stack pointer of the new context.
+      "mov    rsp, rdx",
+      // Restore frame pointer of the new context.
+      "pop    rbp",
+      // Return into the new context. Use `pop` and `jmp` instead of a `ret`
+      // to avoid return address mispredictions (~8ns per `ret` on Ivy Bridge).
+      "pop    rax",
+      "jmp    rax",
+      // Reentry
+      "0:",
+      //
+      // Outputs
+      lateout("rdi") ret,
+      lateout("rsi") ret_sp,
+      // Inputs
+      in("rdi") arg,
+      in("rdx") new_sp.offset(0),
+      // Clobbers
+      out("rax") _, out("rbx") _, out("rcx") _, lateout("rdx") _,
+      out("r8") _, out("r9") _, out("r10") _, out("r11") _,
+      out("r12") _, out("r13") _, out("r14") _, out("r15") _,
+      /*
+      TODO:
+      out("mm0") _, out("mm1") _, out("mm2") _, out("mm3") _,
+      out("mm4") _, out("mm5") _, out("mm6") _, out("mm7") _,
+      */
+      out("xmm0") _, out("xmm1") _, out("xmm2") _, out("xmm3") _,
+      out("xmm4") _, out("xmm5") _, out("xmm6") _, out("xmm7") _,
+      out("xmm8") _, out("xmm9") _, out("xmm10") _, out("xmm11") _,
+      out("xmm12") _, out("xmm13") _, out("xmm14") _, out("xmm15") _,
+      /*
+      TODO:
+      out("xmm16") _, out("xmm17") _, out("xmm18") _, out("xmm19") _,
+      out("xmm20") _, out("xmm21") _, out("xmm22") _, out("xmm23") _,
+      out("xmm24") _, out("xmm25") _, out("xmm26") _, out("xmm27") _,
+      out("xmm28") _, out("xmm29") _, out("xmm30") _, out("xmm31") _,
+      */
+      /* Options:
+          rustc emits the following clobbers,
+          - by *not* specifying `options(preserves_flags)`:
+              (x86) ~{dirflag},~{flags},~{fpsr}
+              (ARM/AArch64) ~{cc}
+          - by *not* specifying `options(nomem)`:
+              ~{memory}
+          - by *not* specifying `nostack`:
+              alignstack
+      */
+  );
+
+  (ret, StackPointer::new(ret_sp))
+}
+
+#[inline(always)]
+pub unsafe fn unwind(new_sp: StackPointer, new_stack_base: *mut u8) {
+  // Argument to pass to start_unwind, based on the stack base address.
+  let arg = unwind::unwind_arg(new_stack_base);
+
+  // This is identical to swap_link, except that it performs a tail call to
+  // start_unwind instead of returning into the target context.
+  asm!(
+      // Push the return address
+      "lea    rax, [rip + 0f]",
+      "push   rax",
+      // Save frame pointer explicitly; the unwinder uses it to find CFA of
+      // the caller, and so it has to have the correct value immediately after
+      // the call instruction that invoked the trampoline.
+      "push   rbp",
+      // Link the call stacks together by writing the current stack bottom
+      // address to the CFA slot in the new stack.
+      "mov    [rcx - 32], rsp",
+      // Load stack pointer of the new context.
+      "mov    rsp, rdx",
+      // Restore frame pointer of the new context.
+      "pop    rbp",
+      // Jump to the start_unwind function, which will force a stack unwind in
+      // the target context. This will eventually return to us through the
+      // stack link.
+      "jmp    {0}",
+      // Reentry
+      "0:",
+      // Symbols
+      sym unwind::start_unwind,
+      // Inputs
+      in("rdi") arg,
+      in("rdx") new_sp.offset(0),
+      in("rcx") new_stack_base,
+      // Clobbers
+      out("rax") _, out("rbx") _, lateout("rcx") _, lateout("rdx") _,
+      lateout("rdi") _, lateout("rsi") _,
+      out("r8") _, out("r9") _, out("r10") _, out("r11") _,
+      out("r12") _, out("r13") _, out("r14") _, out("r15") _,
+      /*
+      TODO:
+      out("mm0") _, out("mm1") _, out("mm2") _, out("mm3") _,
+      out("mm4") _, out("mm5") _, out("mm6") _, out("mm7") _,
+      */
+      out("xmm0") _, out("xmm1") _, out("xmm2") _, out("xmm3") _,
+      out("xmm4") _, out("xmm5") _, out("xmm6") _, out("xmm7") _,
+      out("xmm8") _, out("xmm9") _, out("xmm10") _, out("xmm11") _,
+      out("xmm12") _, out("xmm13") _, out("xmm14") _, out("xmm15") _,
+      /*
+      TODO:
+      out("xmm16") _, out("xmm17") _, out("xmm18") _, out("xmm19") _,
+      out("xmm20") _, out("xmm21") _, out("xmm22") _, out("xmm23") _,
+      out("xmm24") _, out("xmm25") _, out("xmm26") _, out("xmm27") _,
+      out("xmm28") _, out("xmm29") _, out("xmm30") _, out("xmm31") _,
+      */
+      /* Options:
+          rustc emits the following clobbers,
+          - by *not* specifying `options(preserves_flags)`:
+              (x86) ~{dirflag},~{flags},~{fpsr}
+              (ARM/AArch64) ~{cc}
+          - by *not* specifying `options(nomem)`:
+              ~{memory}
+          - by *not* specifying `nostack`:
+              alignstack
+      */
+  );
 }

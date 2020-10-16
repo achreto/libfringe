@@ -15,6 +15,7 @@ impl OwnedStack {
   /// Allocates a new stack with exactly `size` accessible bytes and alignment appropriate
   /// for the current platform using the default Rust allocator.
   pub fn new(size: usize) -> OwnedStack {
+    // TODO(cynecx): check size according to MIN_STACK_SIZE
     unsafe {
       let aligned_size = size & !(STACK_ALIGNMENT - 1);
       let ptr = alloc(Layout::from_size_align_unchecked(
