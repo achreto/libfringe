@@ -11,6 +11,7 @@ edition = "2018"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.14"
+backtrace = "0.3"
 
 [dependencies.valgrind_request]
 optional = true
@@ -20,9 +21,10 @@ version = "1.0.0"
 packed_simd = { version = "0.3.4", package = "packed_simd_2" }
 
 [features]
-default = [ "std" ]
+default = [ "std", "unwind" ]
 std = [ "alloc" ]
 alloc = []
+unwind = [ "std" ]
 valgrind = ["valgrind_request"]
 
 # These apply only to tests within this library; assembly at -O0 is completely
