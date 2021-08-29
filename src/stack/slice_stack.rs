@@ -15,6 +15,7 @@ impl<'a> SliceStack<'a> {
   /// use as a stack. However this function may panic if the slice is smaller
   /// than `STACK_ALIGNMENT`.
   pub fn new(slice: &'a mut [u8]) -> SliceStack<'a> {
+    // TODO(cynecx): check slice len according to MIN_STACK_SIZE
     // Align the given slice so that it matches platform requirements
     let ptr = slice.as_ptr() as usize;
     let adjusted_ptr = (ptr + STACK_ALIGNMENT - 1) & !(STACK_ALIGNMENT - 1);

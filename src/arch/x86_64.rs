@@ -52,8 +52,12 @@ use core::ptr::NonNull;
 
 pub const STACK_ALIGNMENT: usize = 16;
 
-pub unsafe fn init(stack_base: *mut u8, f: unsafe fn(usize, StackPointer)) -> StackPointer {
+pub unsafe fn init(
+  stack_base: *mut u8,
+  f: unsafe extern "C" fn(usize, StackPointer),
+) -> StackPointer {
   #[cfg(not(target_vendor = "apple"))]
+  #[allow(named_asm_labels)]
   #[naked]
   unsafe extern "C" fn trampoline_1() {
     asm!(
@@ -84,6 +88,7 @@ pub unsafe fn init(stack_base: *mut u8, f: unsafe fn(usize, StackPointer)) -> St
       "nop",
       ".Lend:",
       ".size __morestack, .Lend-__morestack",
+      options(noreturn)
     );
   }
 
@@ -98,6 +103,7 @@ pub unsafe fn init(stack_base: *mut u8, f: unsafe fn(usize, StackPointer)) -> St
       ".cfi_offset rbp, -16",
       "nop",
       "nop",
+      options(noreturn),
     )
   }
 
@@ -151,6 +157,8 @@ pub unsafe fn init(stack_base: *mut u8, f: unsafe fn(usize, StackPointer)) -> St
 
       sym unwind::unwind_wrapper,
       sym unwind::start_unwind,
+
+      options(noreturn),
     );
   }
 
@@ -191,6 +199,11 @@ pub unsafe fn swap_link(
   let mut ret_sp: *mut usize;
 
   asm!(
+      // FIXME(cynecx): figure out correct cfi directives.
+      // Save `rbx` because we can't use `rbx` in a clobber because it's reserved by llvm.
+      // "push rbx",
+      // ".cfi_adjust_cfa_offset 8",
+      // ".cfi_rel_offset rbx, 0",
       // Push the return address
       "lea    rax, [rip + 0f]",
       "push   rax",
@@ -213,6 +226,11 @@ pub unsafe fn swap_link(
       "jmp    rax",
       // Reentry
       "0:",
+      // FIXME(cynecx): figure out correct cfi directives.
+      // Restore `rbx` which we've saved before because we can't use it as a clobber.
+      // "pop    rbx",
+      // ".cfi_adjust_cfa_offset -8",
+      // ".cfi_restore rbx",
       // Outputs
       lateout("rdi") ret,
       lateout("rsi") ret_sp,
@@ -224,22 +242,16 @@ pub unsafe fn swap_link(
       out("rax") _, out("rbx") _, lateout("rcx") _, lateout("rdx") _,
       out("r8") _, out("r9") _, out("r10") _, out("r11") _,
       out("r12") _, out("r13") _, out("r14") _, out("r15") _,
-      /*
-      TODO:
       out("mm0") _, out("mm1") _, out("mm2") _, out("mm3") _,
       out("mm4") _, out("mm5") _, out("mm6") _, out("mm7") _,
-      */
       out("xmm0") _, out("xmm1") _, out("xmm2") _, out("xmm3") _,
       out("xmm4") _, out("xmm5") _, out("xmm6") _, out("xmm7") _,
       out("xmm8") _, out("xmm9") _, out("xmm10") _, out("xmm11") _,
       out("xmm12") _, out("xmm13") _, out("xmm14") _, out("xmm15") _,
-      /*
-      TODO:
       out("xmm16") _, out("xmm17") _, out("xmm18") _, out("xmm19") _,
       out("xmm20") _, out("xmm21") _, out("xmm22") _, out("xmm23") _,
       out("xmm24") _, out("xmm25") _, out("xmm26") _, out("xmm27") _,
       out("xmm28") _, out("xmm29") _, out("xmm30") _, out("xmm31") _,
-      */
       /* Options:
           rustc emits the following clobbers,
           - by *not* specifying `options(preserves_flags)`:
@@ -250,6 +262,7 @@ pub unsafe fn swap_link(
           - by *not* specifying `nostack`:
               alignstack
       */
+      options(unwind)
   );
   (ret, NonNull::new(ret_sp).map(StackPointer::from))
 }
@@ -261,6 +274,11 @@ pub unsafe fn swap(arg: usize, new_sp: StackPointer) -> (usize, StackPointer) {
   let mut ret_sp: *mut usize;
 
   asm!(
+      // FIXME(cynecx): figure out correct cfi directives.
+      // Save `rbx` because we can't use `rbx` in a clobber because it's reserved by llvm.
+      // "push rbx",
+      // ".cfi_adjust_cfa_offset 8",
+      // ".cfi_rel_offset rbx, 0",
       // Push the return address
       "lea    rax, [rip + 0f]",
       "push   rax",
@@ -280,6 +298,11 @@ pub unsafe fn swap(arg: usize, new_sp: StackPointer) -> (usize, StackPointer) {
       "jmp    rax",
       // Reentry
       "0:",
+      // FIXME(cynecx): figure out correct cfi directives.
+      // Restore `rbx` which we've saved before because we can't use it as a clobber.
+      // "pop    rbx",
+      // ".cfi_adjust_cfa_offset -8",
+      // ".cfi_restore rbx",
       //
       // Outputs
       lateout("rdi") ret,
@@ -291,22 +314,16 @@ pub unsafe fn swap(arg: usize, new_sp: StackPointer) -> (usize, StackPointer) {
       out("rax") _, out("rbx") _, out("rcx") _, lateout("rdx") _,
       out("r8") _, out("r9") _, out("r10") _, out("r11") _,
       out("r12") _, out("r13") _, out("r14") _, out("r15") _,
-      /*
-      TODO:
       out("mm0") _, out("mm1") _, out("mm2") _, out("mm3") _,
       out("mm4") _, out("mm5") _, out("mm6") _, out("mm7") _,
-      */
       out("xmm0") _, out("xmm1") _, out("xmm2") _, out("xmm3") _,
       out("xmm4") _, out("xmm5") _, out("xmm6") _, out("xmm7") _,
       out("xmm8") _, out("xmm9") _, out("xmm10") _, out("xmm11") _,
       out("xmm12") _, out("xmm13") _, out("xmm14") _, out("xmm15") _,
-      /*
-      TODO:
       out("xmm16") _, out("xmm17") _, out("xmm18") _, out("xmm19") _,
       out("xmm20") _, out("xmm21") _, out("xmm22") _, out("xmm23") _,
       out("xmm24") _, out("xmm25") _, out("xmm26") _, out("xmm27") _,
       out("xmm28") _, out("xmm29") _, out("xmm30") _, out("xmm31") _,
-      */
       /* Options:
           rustc emits the following clobbers,
           - by *not* specifying `options(preserves_flags)`:
@@ -317,6 +334,7 @@ pub unsafe fn swap(arg: usize, new_sp: StackPointer) -> (usize, StackPointer) {
           - by *not* specifying `nostack`:
               alignstack
       */
+      options(unwind)
   );
 
   (ret, StackPointer::new(ret_sp))
@@ -330,6 +348,11 @@ pub unsafe fn unwind(new_sp: StackPointer, new_stack_base: *mut u8) {
   // This is identical to swap_link, except that it performs a tail call to
   // start_unwind instead of returning into the target context.
   asm!(
+      // FIXME(cynecx): figure out correct cfi directives.
+      // Save `rbx` because we can't use `rbx` in a clobber because it's reserved by llvm.
+      // "push rbx",
+      // ".cfi_adjust_cfa_offset 8",
+      // ".cfi_rel_offset rbx, 0",
       // Push the return address
       "lea    rax, [rip + 0f]",
       "push   rax",
@@ -350,6 +373,11 @@ pub unsafe fn unwind(new_sp: StackPointer, new_stack_base: *mut u8) {
       "jmp    {0}",
       // Reentry
       "0:",
+      // FIXME(cynecx): figure out correct cfi directives.
+      // Restore `rbx` which we've saved before because we can't use it as a clobber.
+      // "pop    rbx",
+      // ".cfi_adjust_cfa_offset -8",
+      // ".cfi_restore rbx",
       // Symbols
       sym unwind::start_unwind,
       // Inputs
@@ -361,22 +389,16 @@ pub unsafe fn unwind(new_sp: StackPointer, new_stack_base: *mut u8) {
       lateout("rdi") _, lateout("rsi") _,
       out("r8") _, out("r9") _, out("r10") _, out("r11") _,
       out("r12") _, out("r13") _, out("r14") _, out("r15") _,
-      /*
-      TODO:
       out("mm0") _, out("mm1") _, out("mm2") _, out("mm3") _,
       out("mm4") _, out("mm5") _, out("mm6") _, out("mm7") _,
-      */
       out("xmm0") _, out("xmm1") _, out("xmm2") _, out("xmm3") _,
       out("xmm4") _, out("xmm5") _, out("xmm6") _, out("xmm7") _,
       out("xmm8") _, out("xmm9") _, out("xmm10") _, out("xmm11") _,
       out("xmm12") _, out("xmm13") _, out("xmm14") _, out("xmm15") _,
-      /*
-      TODO:
       out("xmm16") _, out("xmm17") _, out("xmm18") _, out("xmm19") _,
       out("xmm20") _, out("xmm21") _, out("xmm22") _, out("xmm23") _,
       out("xmm24") _, out("xmm25") _, out("xmm26") _, out("xmm27") _,
       out("xmm28") _, out("xmm29") _, out("xmm30") _, out("xmm31") _,
-      */
       /* Options:
           rustc emits the following clobbers,
           - by *not* specifying `options(preserves_flags)`:
@@ -387,5 +409,6 @@ pub unsafe fn unwind(new_sp: StackPointer, new_stack_base: *mut u8) {
           - by *not* specifying `nostack`:
               alignstack
       */
+      options(unwind)
   );
 }

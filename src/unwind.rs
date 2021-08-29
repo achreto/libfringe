@@ -34,19 +34,16 @@ fn have_cross_stack_unwind() -> bool {
 }
 
 // Wrapper around the root function of a generator which handles unwinding.
-#[unwind(allowed)]
 pub unsafe extern "C" fn unwind_wrapper(
   arg: usize,
   sp: StackPointer,
   stack_base: *mut u8,
-  f: unsafe fn(usize, StackPointer),
+  f: unsafe extern "C" fn(usize, StackPointer),
 ) -> Option<Box<Box<dyn Any + Send>>> {
   // Catch any attempts to unwind out of the context.
   match panic::catch_unwind(move || f(arg, sp)) {
     Ok(_) => None,
     Err(err) => {
-      use std::io::Write;
-
       // If the unwinding is due to an UnwindMarker, check whether it is intended
       // for us by comparing the stack base of the caller with ours. If it is the
       // same then we can swallow the exception and return to the caller normally.
@@ -70,7 +67,6 @@ pub unsafe extern "C" fn unwind_wrapper(
 
 // Called by asm to start unwinding in the current context with the given
 // exception object.
-#[unwind(allowed)]
 pub unsafe extern "C" fn start_unwind(panic: Box<Box<dyn Any + Send>>) -> ! {
   // Use resume_unwind instead of panic! to avoid printing a message.
   panic::resume_unwind(*panic)

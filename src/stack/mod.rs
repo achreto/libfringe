@@ -7,6 +7,8 @@
 //! Traits for stacks.
 
 mod slice_stack;
+use core::fmt::Debug;
+
 pub use crate::stack::slice_stack::SliceStack;
 
 #[cfg(feature = "alloc")]
@@ -32,7 +34,7 @@ pub const MIN_STACK_SIZE: usize = 16 * 1024;
 ///   * Every address between the base and the limit must be readable and writable.
 ///
 /// [align]: constant.STACK_ALIGNMENT.html
-pub unsafe trait Stack {
+pub unsafe trait Stack: Debug {
   /// Returns the base address of the stack.
   /// On all modern architectures, the stack grows downwards,
   /// so this is the highest address.

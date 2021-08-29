@@ -117,8 +117,10 @@ where
   where
     F: FnOnce(&Yielder<Input, Output>, Input) + 'a,
   {
-    unsafe fn generator_wrapper<Input, Output, Stack, F>(env: usize, stack_ptr: StackPointer)
-    where
+    unsafe extern "C" fn generator_wrapper<Input, Output, Stack, F>(
+      env: usize,
+      stack_ptr: StackPointer,
+    ) where
       Stack: stack::Stack,
       F: FnOnce(&Yielder<Input, Output>, Input),
     {

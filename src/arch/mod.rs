@@ -9,14 +9,10 @@
 use core::ptr::NonNull;
 
 // #[cfg_attr(target_arch = "x86", path = "x86.rs")]
-//#[cfg_attr(target_arch = "x86_64", path = "x86_64.rs")]
+#[cfg_attr(target_arch = "x86_64", path = "x86_64.rs")]
 // #[cfg_attr(target_arch = "aarch64", path = "aarch64.rs")]
 // #[cfg_attr(target_arch = "or1k", path = "or1k.rs")]
-//mod imp;
-
-// TEMP FOR RUST-ANALYZER
-mod x86_64;
-use x86_64 as imp;
+mod imp;
 
 pub use self::imp::*;
 
@@ -60,7 +56,7 @@ mod tests {
 
   #[test]
   fn context() {
-    unsafe fn adder(arg: usize, stack_ptr: StackPointer) {
+    unsafe extern "C" fn adder(arg: usize, stack_ptr: StackPointer) {
       println!("it's alive! arg: {}", arg);
       let (arg, stack_ptr) = arch::swap(arg + 1, stack_ptr);
       println!("still alive! arg: {}", arg);
@@ -104,7 +100,7 @@ mod tests {
   //   }
   // }
 
-  unsafe fn do_panic(arg: usize, stack_ptr: StackPointer) {
+  unsafe extern "C" fn do_panic(arg: usize, stack_ptr: StackPointer) {
     match arg {
       0 => panic!("arg=0"),
       1 => {
@@ -140,7 +136,7 @@ mod tests {
 
   #[test]
   fn ret() {
-    unsafe fn ret2(_: usize, _: StackPointer) {}
+    unsafe extern "C" fn ret2(_: usize, _: StackPointer) {}
 
     unsafe {
       let stack = OsStack::new(4 << 20).unwrap();
@@ -153,7 +149,7 @@ mod tests {
 
   #[bench]
   fn swap(b: &mut test::Bencher) {
-    unsafe fn loopback(mut arg: usize, mut stack_ptr: StackPointer) {
+    unsafe extern "C" fn loopback(mut arg: usize, mut stack_ptr: StackPointer) {
       // This deliberately does not ignore arg, to measure the time it takes
       // to move the return value between registers.
       loop {

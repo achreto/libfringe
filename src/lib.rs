@@ -25,7 +25,7 @@
 //!   * a stack allocator based on anonymous memory mappings with guard pages,
 //!     [OsStack](struct.OsStack.html).
 
-#![feature(asm, naked_functions, untagged_unions, unwind_attributes)]
+#![feature(asm, naked_functions)]
 #![cfg_attr(test, feature(test))]
 #![no_std]
 
