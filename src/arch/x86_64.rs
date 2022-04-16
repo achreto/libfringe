@@ -239,7 +239,7 @@ pub unsafe fn swap_link(
       in("rdx") new_sp.offset(0),
       in("rcx") new_stack_base,
       // Clobbers
-      out("rax") _, out("rbx") _, lateout("rcx") _, lateout("rdx") _,
+      out("rax") _, lateout("rcx") _, lateout("rdx") _,
       out("r8") _, out("r9") _, out("r10") _, out("r11") _,
       out("r12") _, out("r13") _, out("r14") _, out("r15") _,
       out("mm0") _, out("mm1") _, out("mm2") _, out("mm3") _,
@@ -262,7 +262,7 @@ pub unsafe fn swap_link(
           - by *not* specifying `nostack`:
               alignstack
       */
-      options(unwind)
+      options(may_unwind)
   );
   (ret, NonNull::new(ret_sp).map(StackPointer::from))
 }
@@ -311,7 +311,7 @@ pub unsafe fn swap(arg: usize, new_sp: StackPointer) -> (usize, StackPointer) {
       in("rdi") arg,
       in("rdx") new_sp.offset(0),
       // Clobbers
-      out("rax") _, out("rbx") _, out("rcx") _, lateout("rdx") _,
+      out("rax") _, out("rcx") _, lateout("rdx") _,
       out("r8") _, out("r9") _, out("r10") _, out("r11") _,
       out("r12") _, out("r13") _, out("r14") _, out("r15") _,
       out("mm0") _, out("mm1") _, out("mm2") _, out("mm3") _,
@@ -334,7 +334,7 @@ pub unsafe fn swap(arg: usize, new_sp: StackPointer) -> (usize, StackPointer) {
           - by *not* specifying `nostack`:
               alignstack
       */
-      options(unwind)
+      options(may_unwind)
   );
 
   (ret, StackPointer::new(ret_sp))
@@ -385,7 +385,7 @@ pub unsafe fn unwind(new_sp: StackPointer, new_stack_base: *mut u8) {
       in("rdx") new_sp.offset(0),
       in("rcx") new_stack_base,
       // Clobbers
-      out("rax") _, out("rbx") _, lateout("rcx") _, lateout("rdx") _,
+      out("rax") _, lateout("rcx") _, lateout("rdx") _,
       lateout("rdi") _, lateout("rsi") _,
       out("r8") _, out("r9") _, out("r10") _, out("r11") _,
       out("r12") _, out("r13") _, out("r14") _, out("r15") _,
@@ -409,6 +409,6 @@ pub unsafe fn unwind(new_sp: StackPointer, new_stack_base: *mut u8) {
           - by *not* specifying `nostack`:
               alignstack
       */
-      options(unwind)
+      options(may_unwind)
   );
 }
