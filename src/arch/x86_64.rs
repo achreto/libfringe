@@ -48,7 +48,7 @@
 //   unwinding at the swap call site instead of falling off the end of context stack.
 
 use crate::{arch::StackPointer, unwind};
-use core::ptr::NonNull;
+use core::{arch::asm, ptr::NonNull};
 
 pub const STACK_ALIGNMENT: usize = 16;
 
