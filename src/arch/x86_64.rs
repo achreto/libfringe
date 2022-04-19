@@ -201,7 +201,7 @@ pub unsafe fn swap_link(
   asm!(
       // FIXME(cynecx): figure out correct cfi directives.
       // Save `rbx` because we can't use `rbx` in a clobber because it's reserved by llvm.
-      // "push rbx",
+      "push rbx",
       // ".cfi_adjust_cfa_offset 8",
       // ".cfi_rel_offset rbx, 0",
       // Push the return address
@@ -228,7 +228,7 @@ pub unsafe fn swap_link(
       "0:",
       // FIXME(cynecx): figure out correct cfi directives.
       // Restore `rbx` which we've saved before because we can't use it as a clobber.
-      // "pop    rbx",
+      "pop    rbx",
       // ".cfi_adjust_cfa_offset -8",
       // ".cfi_restore rbx",
       // Outputs
@@ -276,7 +276,7 @@ pub unsafe fn swap(arg: usize, new_sp: StackPointer) -> (usize, StackPointer) {
   asm!(
       // FIXME(cynecx): figure out correct cfi directives.
       // Save `rbx` because we can't use `rbx` in a clobber because it's reserved by llvm.
-      // "push rbx",
+      "push rbx",
       // ".cfi_adjust_cfa_offset 8",
       // ".cfi_rel_offset rbx, 0",
       // Push the return address
@@ -300,7 +300,7 @@ pub unsafe fn swap(arg: usize, new_sp: StackPointer) -> (usize, StackPointer) {
       "0:",
       // FIXME(cynecx): figure out correct cfi directives.
       // Restore `rbx` which we've saved before because we can't use it as a clobber.
-      // "pop    rbx",
+      "pop    rbx",
       // ".cfi_adjust_cfa_offset -8",
       // ".cfi_restore rbx",
       //
@@ -350,7 +350,7 @@ pub unsafe fn unwind(new_sp: StackPointer, new_stack_base: *mut u8) {
   asm!(
       // FIXME(cynecx): figure out correct cfi directives.
       // Save `rbx` because we can't use `rbx` in a clobber because it's reserved by llvm.
-      // "push rbx",
+      "push rbx",
       // ".cfi_adjust_cfa_offset 8",
       // ".cfi_rel_offset rbx, 0",
       // Push the return address
@@ -375,7 +375,7 @@ pub unsafe fn unwind(new_sp: StackPointer, new_stack_base: *mut u8) {
       "0:",
       // FIXME(cynecx): figure out correct cfi directives.
       // Restore `rbx` which we've saved before because we can't use it as a clobber.
-      // "pop    rbx",
+      "pop    rbx",
       // ".cfi_adjust_cfa_offset -8",
       // ".cfi_restore rbx",
       // Symbols
