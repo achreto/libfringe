@@ -47,101 +47,90 @@
 //   from the stack frame at x29 (in the parent stack), thus continuing
 //   unwinding at the swap call site instead of falling off the end of context stack.
 
-use core::mem;
-use stack::Stack;
+use crate::{arch::StackPointer, unwind, Stack};
+use core::{arch::asm, mem, ptr::NonNull};
 
 pub const STACK_ALIGNMENT: usize = 16;
 
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct StackPointer(*mut usize);
-
 pub unsafe fn init(
-  stack: &Stack,
-  f: unsafe extern "C" fn(usize, StackPointer) -> !,
+  stack_base: *mut u8,
+  f: unsafe extern "C" fn(usize, StackPointer),
 ) -> StackPointer {
   #[cfg(not(target_vendor = "apple"))]
+  #[allow(named_asm_labels)]
   #[naked]
   unsafe extern "C" fn trampoline_1() {
     asm!(
-      r#"
-        # gdb has a hardcoded check that rejects backtraces where frame addresses
-        # do not monotonically decrease. It is turned off if the function is called
-        # "__morestack" and that is hardcoded. So, to make gdb backtraces match
-        # the actual unwinder behavior, we call ourselves "__morestack" and mark
-        # the symbol as local; it shouldn't interfere with anything.
-      __morestack:
-      .local __morestack
-
-        # Set up the first part of our DWARF CFI linking stacks together. When
-        # we reach this function from unwinding, x29 will be pointing at the bottom
-        # of the parent linked stack. This link is set each time swap() is called.
-        # When unwinding the frame corresponding to this function, a DWARF unwinder
-        # will use x29+16 as the next call frame address, restore return address (x30)
-        # from CFA-8 and restore x29 from CFA-16. This mirrors what the second half
-        # of `swap_trampoline` does.
-        .cfi_def_cfa x29, 16
-        .cfi_offset x30, -8
-        .cfi_offset x29, -16
-
-        # This nop is here so that the initial swap doesn't return to the start
-        # of the trampoline, which confuses the unwinder since it will look for
-        # frame information in the previous symbol rather than this one. It is
-        # never actually executed.
-        nop
-
-      .Lend:
-      .size __morestack, .Lend-__morestack
-      "#
-      : : : : "volatile")
+      // gdb has a hardcoded check that rejects backtraces where frame addresses
+      // do not monotonically decrease. It is turned off if the function is called
+      // "__morestack" and that is hardcoded. So, to make gdb backtraces match
+      // the actual unwinder behavior, we call ourselves "__morestack" and mark
+      // the symbol as local; it shouldn't interfere with anything.
+      "__morestack:",
+      ".local __morestack",
+      // Set up the first part of our DWARF CFI linking stacks together. When
+      // we reach this function from unwinding, x29 will be pointing at the bottom
+      // of the parent linked stack. This link is set each time swap() is called.
+      // When unwinding the frame corresponding to this function, a DWARF unwinder
+      // will use x29+16 as the next call frame address, restore return address (x30)
+      // from CFA-8 and restore x29 from CFA-16. This mirrors what the second half
+      // of `swap_trampoline` does.
+      ".cfi_def_cfa x29, 16",
+      ".cfi_offset x30, -8",
+      ".cfi_offset x29, -16",
+      // This nop is here so that the initial swap doesn't return to the start
+      // of the trampoline, which confuses the unwinder since it will look for
+      // frame information in the previous symbol rather than this one. It is
+      // never actually executed.
+      "nop",
+      ".Lend:",
+      ".size __morestack, .Lend-__morestack",
+      options(noreturn)
+    )
   }
 
   #[cfg(target_vendor = "apple")]
   #[naked]
   unsafe extern "C" fn trampoline_1() {
     asm!(
-      r#"
-      # Identical to the above, except avoids .local/.size that aren't available on Mach-O.
-      __morestack:
-      .private_extern __morestack
-        .cfi_def_cfa x29, 16
-        .cfi_offset x30, -8
-        .cfi_offset x29, -16
-        nop
-      "#
-      : : : : "volatile")
+      // # Identical to the above, except avoids .local/.size that aren't available on Mach-O.
+      "__morestack:",
+      ".private_extern __morestack",
+      ".cfi_def_cfa x29, 16",
+      ".cfi_offset x30, -8",
+      ".cfi_offset x29, -16",
+      "nop",
+      options(noreturn)
+    )
   }
 
   #[naked]
   unsafe extern "C" fn trampoline_2() {
     asm!(
-      r#"
-        # Set up the second part of our DWARF CFI.
-        # When unwinding the frame corresponding to this function, a DWARF unwinder
-        # will restore x29 (and thus CFA of the first trampoline) from the stack slot.
-        # This stack slot is updated every time swap() is called to point to the bottom
-        # of the stack of the context switch just switched from.
-        .cfi_def_cfa x29, 16
-        .cfi_offset x30, -8
-        .cfi_offset x29, -16
-
-        # This nop is here so that the return address of the swap trampoline
-        # doesn't point to the start of the symbol. This confuses gdb's backtraces,
-        # causing them to think the parent function is trampoline_1 instead of
-        # trampoline_2.
-        nop
-
-        # Call the provided function.
-        ldr     x2, [sp, #16]
-        blr     x2
-      "#
-      : : : : "volatile")
+      // Set up the second part of our DWARF CFI.
+      // When unwinding the frame corresponding to this function, a DWARF unwinder
+      // will restore x29 (and thus CFA of the first trampoline) from the stack slot.
+      // This stack slot is updated every time swap() is called to point to the bottom
+      // of the stack of the context switch just switched from.
+      ".cfi_def_cfa x29, 16",
+      ".cfi_offset x30, -8",
+      ".cfi_offset x29, -16",
+      // This nop is here so that the return address of the swap trampoline
+      // doesn't point to the start of the symbol. This confuses gdb's backtraces,
+      // causing them to think the parent function is trampoline_1 instead of
+      // trampoline_2.
+      "nop",
+      // Call the provided function.
+      "ldr     x2, [sp, #16]",
+      "blr     x2",
+      options(noreturn)
+    )
   }
 
-  unsafe fn push(sp: &mut StackPointer, val: usize) {
-    sp.0 = sp.0.offset(-1);
-    *sp.0 = val
-  }
+  // unsafe fn push(sp: &mut StackPointer, val: usize) {
+  //   sp.0 = sp.0.offset(-1);
+  //   *sp.0 = val
+  // }
 
   // We set up the stack in a somewhat special way so that to the unwinder it
   // looks like trampoline_1 has called trampoline_2, which has in turn called
@@ -151,90 +140,145 @@ pub unsafe fn init(
   // followed by the x29 value for that frame. This setup supports unwinding
   // using DWARF CFI as well as the frame pointer-based unwinding used by tools
   // such as perf or dtrace.
-  let mut sp = StackPointer(stack.base() as *mut usize);
+  let mut sp = StackPointer::new(stack_base);
 
-  push(&mut sp, 0 as usize); // Padding to ensure the stack is properly aligned
-  push(&mut sp, f as usize); // Function that trampoline_2 should call
+  sp.push(0 as usize); // Padding to ensure the stack is properly aligned
+  sp.push(f as usize); // Function that trampoline_2 should call
 
   // Call frame for trampoline_2. The CFA slot is updated by swap::trampoline
   // each time a context switch is performed.
-  push(&mut sp, trampoline_1 as usize + 4); // Return after the nop
-  push(&mut sp, 0xdeaddeaddead0cfa); // CFA slot
+  sp.push(trampoline_1 as usize + 4); // Return after the nop
+  sp.push(0xdeaddeaddead0cfa); // CFA slot
 
   // Call frame for swap::trampoline. We set up the x29 value to point to the
   // parent call frame.
-  let frame = sp;
-  push(&mut sp, trampoline_2 as usize + 4); // Entry point, skip initial nop
-  push(&mut sp, frame.0 as usize); // Pointer to parent call frame
+  let frame = sp.offset(0);
+  sp.push(trampoline_2 as usize + 4); // Entry point, skip initial nop
+  sp.push(frame as usize); // Pointer to parent call frame
 
   sp
 }
 
 #[inline(always)]
-pub unsafe fn swap(
+pub unsafe fn swap_link(
   arg: usize,
   new_sp: StackPointer,
-  new_stack: Option<&Stack>,
-) -> (usize, StackPointer) {
-  // Address of the topmost CFA stack slot.
-  let mut dummy: usize = mem::uninitialized();
-  let new_cfa = if let Some(new_stack) = new_stack {
-    (new_stack.base() as *mut usize).offset(-4)
-  } else {
-    // Just pass a dummy pointer if we aren't linking the stack
-    &mut dummy
-  };
-
+  new_stack_base: *mut u8,
+) -> (usize, Option<StackPointer>) {
   let ret: usize;
   let ret_sp: *mut usize;
   asm!(
-    r#"
-        # Set up the link register
-        adr     lr, 0f
 
-        # Save the frame pointer and link register; the unwinder uses them to find
-        # the CFA of the caller, and so they have to have the correct value immediately
-        # after the call instruction that invoked the trampoline.
-        stp     x29, x30, [sp, #-16]!
+        // Set up the link register
+        "adr     lr, 0f",
 
-        # Pass the stack pointer of the old context to the new one.
-        mov     x1, sp
+        // Save the frame pointer and link register; the unwinder uses them to find
+        // the CFA of the caller, and so they have to have the correct value immediately
+        // after the call instruction that invoked the trampoline.
+        "stp     x29, x30, [sp, #-16]!",
 
-        # Link the call stacks together by writing the current stack bottom
-        # address to the CFA slot in the new stack.
-        str     x1, [x3]
+        //  Pass the stack pointer of the old context to the new one.
+        "mov     x1, sp",
 
-        # Load stack pointer of the new context.
-        mov     sp, x2
+        // Link the call stacks together by writing the current stack bottom
+        // address to the CFA slot in the new stack.
+        "str     x1, [x3]",
 
-        # Load frame and instruction pointers of the new context.
-        ldp     x29, x30, [sp], #16
+        // Load stack pointer of the new context.
+        "mov     sp, x2",
 
-        # Return into the new context. Use `br` instead of a `ret` to avoid
-        # return address mispredictions.
-        br      x30
+        // Load frame and instruction pointers of the new context.
+        "ldp     x29, x30, [sp], #16",
 
-      0:
-    "#
-    : "={x0}" (ret)
-      "={x1}" (ret_sp)
-    : "{x0}" (arg)
-      "{x2}" (new_sp.0)
-      "{x3}" (new_cfa)
-    :/*x0,   "x1",*/"x2",  "x3",  "x4",  "x5",  "x6",  "x7",
-      "x8",  "x9",  "x10", "x11", "x12", "x13", "x14", "x15",
-      "x16", "x17", "x18", "x19", "x20", "x21", "x22", "x23",
-      "x24", "x25", "x26", "x27", "x28",/*fp,*/ "lr", /*sp,*/
-      "v0",  "v1",  "v2",  "v3",  "v4",  "v5",  "v6",  "v7",
-      "v8",  "v9",  "v10", "v11", "v12", "v13", "v14", "v15",
-      "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23",
-      "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31",
-      "cc", "memory"
+        // Return into the new context. Use `br` instead of a `ret` to avoid
+        // return address mispredictions.
+        "br      x30",
+
+      "0:",
+    // Clobbers
+
+
+    // Outputs
+    lateout("x0") ret,
+    lateout("x1") ret_sp,
+    // Inputs
+    in("x0") arg,
+    in("x2") new_sp.offset(0),
+    in("x3") new_stack_base,
+  /*x0,   "x1",*/ /*"x2", */ /* "x3" */  out("x4") _,  out("x5") _,  out("x6") _,  out("x7") _,
+    out("x8") _,  out("x9") _,  out("x10") _,  out("x11") _,  out("x12") _,  out("x13") _,  out("x14") _,  out("x15") _,
+    out("x16") _,  out("x17") _,  out("x18") _,  /* out("x19") _, */  out("x20") _,  out("x21") _,  out("x22") _,  out("x23") _,
+    out("x24") _,  out("x25") _,  out("x26") _,  out("x27") _,  out("x28") _, /*fp,*/ out("lr") _, /*sp,*/
+    out("v0") _,  out("v1") _,  out("v2") _,  out("v3") _,  out("v4") _,  out("v5") _,  out("v6") _,  out("v7") _,
+    out("v8") _,  out("v9") _,  out("v10") _,  out("v11") _,  out("v12") _,  out("v13") _,  out("v14") _,  out("v15") _,
+    out("v16") _,  out("v17") _,  out("v18") _,  out("v19") _,  out("v20") _,  out("v21") _,  out("v22") _,  out("v23") _,
+    out("v24") _,  out("v25") _,  out("v26") _,  out("v27") _,  out("v28") _,  out("v29") _,  out("v30") _,  out("v31") _,
+    // out("cc", "memory"
       // Ideally, we would set the LLVM "noredzone" attribute on this function
       // (and it would be propagated to the call site). Unfortunately, rustc
       // provides no such functionality. Fortunately, by a lucky coincidence,
       // the "alignstack" LLVM inline assembly option does exactly the same
       // thing on AArch64.
-    : "volatile", "alignstack");
-  (ret, StackPointer(ret_sp))
+      options(may_unwind));
+  (ret, NonNull::new(ret_sp).map(StackPointer::from))
+}
+
+#[inline(always)]
+pub unsafe fn swap(arg: usize, new_sp: StackPointer) -> (usize, StackPointer) {
+  let ret: usize;
+  let ret_sp: *mut usize;
+  asm!(
+
+        // Set up the link register
+        "adr     lr, 0f",
+
+        // Save the frame pointer and link register; the unwinder uses them to find
+        // the CFA of the caller, and so they have to have the correct value immediately
+        // after the call instruction that invoked the trampoline.
+        "stp     x29, x30, [sp, #-16]!",
+
+        //  Pass the stack pointer of the old context to the new one.
+        "mov     x1, sp",
+
+        // Load stack pointer of the new context.
+        "mov     sp, x2",
+
+        // Load frame and instruction pointers of the new context.
+        "ldp     x29, x30, [sp], #16",
+
+        // Return into the new context. Use `br` instead of a `ret` to avoid
+        // return address mispredictions.
+        "br      x30",
+
+      "0:",
+    // Clobbers
+
+
+    // Outputs
+    lateout("x0") ret,
+    lateout("x1") ret_sp,
+    // Inputs
+    in("x0") arg,
+    in("x2") new_sp.offset(0),
+  /*x0,   "x1",*/ /*"x2", */  out("x3") _,   out("x4") _,  out("x5") _,  out("x6") _,  out("x7") _,
+    out("x8") _,  out("x9") _,  out("x10") _,  out("x11") _,  out("x12") _,  out("x13") _,  out("x14") _,  out("x15") _,
+    out("x16") _,  out("x17") _,  out("x18") _,  /* out("x19") _, */  out("x20") _,  out("x21") _,  out("x22") _,  out("x23") _,
+    out("x24") _,  out("x25") _,  out("x26") _,  out("x27") _,  out("x28") _, /*fp,*/ out("lr") _, /*sp,*/
+    out("v0") _,  out("v1") _,  out("v2") _,  out("v3") _,  out("v4") _,  out("v5") _,  out("v6") _,  out("v7") _,
+    out("v8") _,  out("v9") _,  out("v10") _,  out("v11") _,  out("v12") _,  out("v13") _,  out("v14") _,  out("v15") _,
+    out("v16") _,  out("v17") _,  out("v18") _,  out("v19") _,  out("v20") _,  out("v21") _,  out("v22") _,  out("v23") _,
+    out("v24") _,  out("v25") _,  out("v26") _,  out("v27") _,  out("v28") _,  out("v29") _,  out("v30") _,  out("v31") _,
+    // out("cc", "memory"
+      // Ideally, we would set the LLVM "noredzone" attribute on this function
+      // (and it would be propagated to the call site). Unfortunately, rustc
+      // provides no such functionality. Fortunately, by a lucky coincidence,
+      // the "alignstack" LLVM inline assembly option does exactly the same
+      // thing on AArch64.
+      options(may_unwind));
+  (ret, StackPointer::new(ret_sp))
+}
+
+#[inline(always)]
+pub unsafe fn unwind(new_sp: StackPointer, new_stack_base: *mut u8) {
+  panic!("not yet implemented")
 }
